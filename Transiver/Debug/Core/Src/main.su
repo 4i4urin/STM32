@@ -1,0 +1,17 @@
+main.c:68:6:output	24	static
+main.c:80:6:dec_to_bin	24	static
+main.c:95:6:delay	16	static
+main.c:103:6:togglepin	16	static
+main.c:143:5:connect	16	static
+main.c:201:6:HAL_TIM_IC_CaptureCallback	32	static
+main.c:229:6:HAL_TIM_PeriodElapsedCallback	80	static
+main.c:276:6:display_pwm_information	16	static
+main.c:286:6:rises_to_char	32	static
+main.c:310:5:main	384	static
+main.c:417:6:SystemClock_Config	72	static
+main.c:452:13:MX_TIM1_Init	96	static
+main.c:523:13:MX_TIM2_Init	32	static
+main.c:565:13:MX_TIM3_Init	48	static
+main.c:623:13:MX_USART2_UART_Init	8	static
+main.c:654:13:MX_GPIO_Init	16	static
+main.c:669:6:Error_Handler	4	static,ignoring_inline_asm
