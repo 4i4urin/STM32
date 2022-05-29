@@ -60,8 +60,8 @@ all: main-build
 main-build: Transiver_f042.elf secondary-outputs
 
 # Tool invocations
-Transiver_f042.elf: $(OBJS) $(USER_OBJS) D:\STM\workspace\Transiver_f042\STM32F042K6TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Transiver_f042.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0 -T"D:\STM\workspace\Transiver_f042\STM32F042K6TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Transiver_f042.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Transiver_f042.elf: $(OBJS) $(USER_OBJS) D:\STM\workspace\sem6_course_work\Transiver_f042\STM32F042K6TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Transiver_f042.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0 -T"D:\STM\workspace\sem6_course_work\Transiver_f042\STM32F042K6TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Transiver_f042.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <string.h>
+#include <stdlib.h>
 
 /* USER CODE END Includes */
 
@@ -32,8 +33,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define T 60000
-#define COUNTER 1000
+#define T 5000
+#define COUNTER 5000
+#define SYN 22
+#define ACK 6
 
 /* USER CODE END PD */
 
@@ -45,6 +48,7 @@
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
@@ -58,12 +62,39 @@ static void MX_GPIO_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
+/*
+ * function use to print const strings in UART2
+ * make print more coder friendly)
+ *
+ * @brief  pointer for string
+ */
+void output(char *string) {
+	HAL_UART_Transmit(&huart2, (uint8_t*) string, strlen(string), 100);
+}
+
+// This function provides delay (in 1 / Timer_freq nanoseconds)
+// delay must be < 65535
+void delay(int delay) {
+	if (delay > 0xFFFF)
+		delay = 0xFFFF;
+	(&htim2)->Instance->CNT = 0;
+	while ((&htim2)->Instance->CNT < delay)
+		;
+}
+
+//<------------- TRANSIVER CODE ----------------->
 
 void togglepin(uint8_t value);
 void delay(int delay);
 
-void dec_to_bin(char ch) {
+/*
+ * transfer char to bin code and send it to PWM channel
+ *
+ * @brief letter which need to transmit
+ */
+void send_value_pwm(char ch) {
 	for (char div = 128; div > 0; div /= 2) {
 		if (ch >= div) {    // 1
 			ch -= div;
@@ -74,15 +105,11 @@ void dec_to_bin(char ch) {
 	delay(T);
 }
 
-// This function provides delay (in 20 nanoseconds)
-void delay(int delay) {
-	if (delay > 0xFFFF)
-		delay = 0xFFFF;
-	(&htim2)->Instance->CNT = 0;
-	while ((&htim2)->Instance->CNT < delay)
-		;
-}
-
+/*
+ * change PWM channel state to transmit 0 or 1 bit value
+ *
+ * @brief 0 or 1 bit value
+ */
 void togglepin(uint8_t value) {
 	//	turning off pin
 	TIM1->CCR2 = 0;
@@ -93,28 +120,213 @@ void togglepin(uint8_t value) {
 		TIM1->CCR2 = COUNTER + 1;
 		TIM1->CNT = COUNTER;
 		delay(T * 0.2);
-//		char c = '1';
-//		HAL_UART_Transmit(&huart2, &c, 1, -1);
 	} else if (value == 0) {
 		delay(T * 0.2);
 		//	turning on pin
 		TIM1->CCR2 = COUNTER + 1;
 		TIM1->CNT = COUNTER;
 		delay(T * 0.8);
-//		char c = '0';
-//		HAL_UART_Transmit(&huart2, &c, 1, -1);
 	} else
 		return;
 }
+
+//<-------------------- END TRANSIVER CODE ----------->
+
+//<-------------------- RECIVER CODE ----------------->
+// variables use in triple handshake to catch SYN, ACK from receiver
+int byte[2] = { 0 };
+int byte_count = 0;
+
+// use in CaptureCallback, PeriodElepsed and other functions
+// variables use in receiver code
+int callback_count = 0;
+int bit_count = 0;
+int *bit;
+
+/*
+ * SYN -->
+ * SYN, ACK <--
+ * ACK -->
+ *
+ * function is made triple handshake work
+ * delays need to slow down handshake to make it readable for user
+ *
+ * firstly stop timers only then turn on overs
+ * it is made half-duplex work normally
+ *
+ * waiting answуrs from receiver in for circle
+ */
+void connect(int *connection) {
+	send_value_pwm(SYN);
+	output("First transmission\r\n");
+	delay(10 * T); // delays must be same with receiver
+
+	// Turning off transmitter timers
+	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+
+	// Turning on receive timers
+	TIM3->ARR = T;
+	HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
+	HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2);
+	HAL_TIM_Base_Start_IT(&htim3);
+
+	delay(10 * T);
+
+	// wait time for 2 byte -> 20 T
+	// to take SYN and ACK from receiver
+	for (int i = 0; byte_count < 2 && i < 20; i++) {
+		delay(T);
+	}
+
+//	char buf[128] = { 0 };
+//	sprintf(buf, "%d - byte\r\n", byte_count);
+//	HAL_UART_Transmit(&huart2, buf, strlen(buf), -1);
+
+	// Turning off reciver timers
+	HAL_TIM_IC_Stop_IT(&htim3, TIM_CHANNEL_1);
+	HAL_TIM_IC_Stop_IT(&htim3, TIM_CHANNEL_2);
+	HAL_TIM_Base_Stop_IT(&htim3);
+	delay(10 * T);
+
+	// Turning on transive timers
+	TIM1->CCR2 = COUNTER + 1;
+	TIM1->CNT = COUNTER;
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+	delay(10 * T);
+
+	if (byte[0] == SYN && byte[1] == ACK) {
+		*connection = 1;
+		output("Device connected\r\n");
+		send_value_pwm(ACK);
+	} else {
+		output("Connection was failed\r\n");
+		*connection = 0;
+	}
+	byte_count = 0;
+	byte[0] = byte[1] = 0;
+	delay(10 * T);
+}
+
+/*
+ * catch changing state of PWM channel
+ * check period of signal to avoid interferences (should write else)
+ * write rising times in bit array
+ */
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
+	if (htim == &htim3) {
+		int falling_edge = 0;
+		int rising_edge = 0;
+//		char buf_1[128] = { 0 };
+
+		callback_count += 1;
+
+		falling_edge = HAL_TIM_ReadCapturedValue(&htim3, TIM_CHANNEL_1);
+		rising_edge = HAL_TIM_ReadCapturedValue(&htim3, TIM_CHANNEL_2);
+//		sprintf(buf_1, "r - %d f - %d c - %d\r\n", rising_edge, falling_edge, callback_count);
+//		HAL_UART_Transmit(&huart2, &buf_1, strlen(buf_1), -1);
+		if (callback_count % 2 != 0 && callback_count != 1) {
+			int period = rising_edge + falling_edge;
+			if (period < T * 1.2 && period > T * 0.8) { // 10% gap for period
+//				char buf_2[128] = { 0 };
+//				sprintf(buf_2, "r - %d\r\n", rising_edge);
+//				HAL_UART_Transmit(&huart2, &buf_2, strlen(buf_2), -1);
+				bit[bit_count] = rising_edge;
+			}
+			bit_count += 1;
+		}
+		TIM3->CNT = 0;
+		TIM2->CNT = 0;
+	}
+}
+
+void read_pwm_information(int *bit);
+
+/*
+ * function catch IDEL signal
+ * IDEL signal then there is one period without capture callback
+ * Use for reading last bit in signal
+ *
+ * AND display letter to user by display_pwm_information()
+ *
+ * 3 types of IDEL
+ *
+ * IDEL after catching 8 bit
+ * function display letter
+ *
+ * IDEL after less 8 bit
+ * function display error message
+ *
+ * IDEL without catching any bit
+ * Timer run function every period with or without information
+ * function do nothing in this case
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	if (htim == &htim3) { // reading last bite of byte
+		if (bit_count == 7 && callback_count > 1) {
+//			char buf[64] = { 0 };
+//			sprintf(buf, "r - %d\r\n", HAL_TIM_ReadCapturedValue(&htim2, TIM_CHANNEL_2));
+//			HAL_UART_Transmit(&huart2, &buf, strlen(buf), -1);
+
+			bit[bit_count] = HAL_TIM_ReadCapturedValue(&htim3, TIM_CHANNEL_2);
+			read_pwm_information(bit);
+
+			bit_count = 0;
+			callback_count = 0;
+//			connect = 1;
+		} else if (callback_count > 1 && bit_count < 7) { // when caught less then 8 bit before IDEL give message about lost bytes
+			output("#LOST BYTE#");
+			if (callback_count % 2 != 0) {
+				output("_1_\r\n"); // start_finish_connection
+				bit_count = 0;
+				callback_count = 0;
+//				start_finish_connection();
+			} else {
+				bit_count = 0;
+				callback_count = 0;
+			}
+		} else if (callback_count == 1) { // turning on/off transiver state of channel change 0V -> 3.3V / 3.3V -> 0V
+			output("_2_\r\n"); // start_finish_connection
+			bit_count = 0;
+			callback_count = 0;
+//			start_finish_connection();
+		} else
+			// TIM run function every period ending
+			return;
+	}
+}
+
+char rises_to_char(int*);
+
+/* function read information from pwm signal
+ *
+ * receives int array contain 8 rising times
+ * convert rising times to char and write it to byte array
+ *
+ */
+void read_pwm_information(int *bit) {
+	byte[byte_count] = rises_to_char(bit);
+	byte_count += 1;
+}
+
+/* function return char from 8 rising times array
+ * bit - pointer to 8 rising times array contain 8 bits
+ * If rising time more then 50% period then this is a 1, else 0
+ */
+char rises_to_char(int *bit) {
+	char c = 0;
+	for (int i = 0, rank = 128; i < 8 && rank > 0; i++, rank /= 2) {
+		if (bit[i] > T * 0.5)
+			c += rank;
+	}
+	return c;
+}
+
+// <-------------------- END RECIVER CODE ----------->
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void output(char* string) {
-	char* buf = string;
-	HAL_UART_Transmit(&huart2, buf, strlen(buf), 100);
-}
 
 /* USER CODE END 0 */
 
@@ -148,14 +360,17 @@ int main(void) {
 	MX_TIM1_Init();
 	MX_TIM2_Init();
 	MX_USART2_UART_Init();
+	MX_TIM3_Init();
 	/* USER CODE BEGIN 2 */
 
 	// channel state 0V
 	TIM1->ARR = COUNTER;
 	TIM1->CCR2 = 0;
 
+	// turning on tranciver timer
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
 
+	// turning on timers for delay
 	HAL_TIM_Base_Start(&htim2);
 
 	/* USER CODE END 2 */
@@ -232,41 +447,42 @@ int main(void) {
 			"Let all the children boogie\r";
 
 	//  Hang in there\rMake a long story short\r
-	char out[] = "still work!!\r\n";
-	HAL_UART_Transmit(&huart2, out, strlen(out), -1);
-	output("Hello world!\rBetter late than never\r\n"
-			"Hang in there\rMake a long story short\r\n"
-			"Good things come to those who wait\r\n"
-			"\r\nThe machines rose from the ashes of the nuclear fire.\r\n"
-			"Their war to exterminate mankind has raged for decades,\r\n"
-			"but the final battle would not be fought in the future.\n"
-			"It would be fought here, in our present. Tonight.\n"
-			"\rWhen you walk through a storm\r\n");
-	char c = 'l';
+	output("Still work\r\n");
+	bit = calloc(8, sizeof(int));
+	if (bit == NULL) {
+		output("ERROR: memory is over");
+		return 1;
+	}
+	int connection = 0;
 	while (1) {
 
-		// turning on channel
-		delay(10 * T);
+//		 turning on channel
 		// channel state 0V -> 3.3V
 		TIM1->CCR2 = COUNTER + 1;
 		TIM1->CNT = COUNTER;
-		HAL_Delay(2000);
-
-//		HAL_UART_Transmit(&huart2, &buf, strlen(buf), -1);
-		// information transmission
-		for (int i = 0; i < strlen(buf); i++) {
-			dec_to_bin(buf[i]);
+//		HAL_Delay(1000);
+		delay(10 * T);
+		// truing connect to receiver until it done
+		while (connection != 1) {
+			connect(&connection);
+			delay(10 * T);
 		}
-//		dec_to_bin(c);
+
+		output("Start transmission\r\n");
+//		HAL_Delay(1000);
+		delay(10 * T);
+		for (int i = 0; i < strlen(buf); i++) {
+			send_value_pwm(buf[i]);
+		}
 		// end of data transmission channel state still 3.3V
-		HAL_Delay(2000);
+//		HAL_Delay(1000);
+		delay(10 * T);
 
 		// turning off channel 3.3V -> 0V
 		TIM1->CCR2 = 0;
 		TIM1->CNT = COUNTER;
-//		HAL_Delay(2000);
-//		char message[] = "End of transmission\r";
-//		HAL_UART_Transmit(&huart2, message, strlen(message), -1);
+		connection = 0;
+		HAL_Delay(2000);
 
 		/* USER CODE END WHILE */
 
@@ -325,7 +541,7 @@ static void MX_TIM1_Init(void) {
 
 	/* USER CODE END TIM1_Init 1 */
 	htim1.Instance = TIM1;
-	htim1.Init.Prescaler = 1 - 1;
+	htim1.Init.Prescaler = 12 - 1;
 	htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
 	htim1.Init.Period = 65535;
 	htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -394,7 +610,7 @@ static void MX_TIM2_Init(void) {
 
 	/* USER CODE END TIM2_Init 1 */
 	htim2.Instance = TIM2;
-	htim2.Init.Prescaler = 1 - 1;
+	htim2.Init.Prescaler = 12 - 1;
 	htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
 	htim2.Init.Period = 4294967295;
 	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -415,6 +631,64 @@ static void MX_TIM2_Init(void) {
 	/* USER CODE BEGIN TIM2_Init 2 */
 
 	/* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+ * @brief TIM3 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM3_Init(void) {
+
+	/* USER CODE BEGIN TIM3_Init 0 */
+
+	/* USER CODE END TIM3_Init 0 */
+
+	TIM_ClockConfigTypeDef sClockSourceConfig = { 0 };
+	TIM_MasterConfigTypeDef sMasterConfig = { 0 };
+	TIM_IC_InitTypeDef sConfigIC = { 0 };
+
+	/* USER CODE BEGIN TIM3_Init 1 */
+
+	/* USER CODE END TIM3_Init 1 */
+	htim3.Instance = TIM3;
+	htim3.Init.Prescaler = 12 - 1;
+	htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+	htim3.Init.Period = 65535;
+	htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+	if (HAL_TIM_Base_Init(&htim3) != HAL_OK) {
+		Error_Handler();
+	}
+	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+	if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK) {
+		Error_Handler();
+	}
+	if (HAL_TIM_IC_Init(&htim3) != HAL_OK) {
+		Error_Handler();
+	}
+	sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+	if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig)
+			!= HAL_OK) {
+		Error_Handler();
+	}
+	sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
+	sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+	sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+	sConfigIC.ICFilter = 0;
+	if (HAL_TIM_IC_ConfigChannel(&htim3, &sConfigIC, TIM_CHANNEL_1) != HAL_OK) {
+		Error_Handler();
+	}
+	sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+	sConfigIC.ICSelection = TIM_ICSELECTION_INDIRECTTI;
+	if (HAL_TIM_IC_ConfigChannel(&htim3, &sConfigIC, TIM_CHANNEL_2) != HAL_OK) {
+		Error_Handler();
+	}
+	/* USER CODE BEGIN TIM3_Init 2 */
+
+	/* USER CODE END TIM3_Init 2 */
 
 }
 
