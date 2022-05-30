@@ -99,8 +99,11 @@ void send_value_pwm(char ch) {
 		if (ch >= div) {    // 1
 			ch -= div;
 			togglepin(1);
-		} else
+//			output("1");
+		} else {
 			togglepin(0);
+//			output("0");
+		}
 	}
 	delay(T);
 }
@@ -384,8 +387,8 @@ int main(void) {
 			"\r\nThe machines rose from the ashes of the nuclear fire.\r"
 			"Their war to exterminate mankind has raged for decades,\r"
 			"but the final battle would not be fought in the future.\r"
-			"It would be fought here, in our present. Tonight.\r"
-			"\rWhen you walk through a storm\r"
+			"It would be fought here, in our present. Tonight.\r";
+/*			"\rWhen you walk through a storm\r"
 			"Hold your head up high\r"
 			"And don't be afraid of the dark\r"
 			"At the end of a storm\r"
@@ -445,7 +448,7 @@ int main(void) {
 			"Let the children lose it\r"
 			"Let the children use it\r"
 			"Let all the children boogie\r";
-
+*/
 	//  Hang in there\rMake a long story short\r
 	output("Still work\r\n");
 	bit = calloc(8, sizeof(int));

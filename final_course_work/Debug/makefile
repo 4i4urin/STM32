@@ -60,8 +60,8 @@ all: main-build
 main-build: final_course_work.elf secondary-outputs
 
 # Tool invocations
-final_course_work.elf: $(OBJS) $(USER_OBJS) D:\STM\workspace\final_course_work\STM32F030K6TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "final_course_work.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0 -T"D:\STM\workspace\final_course_work\STM32F030K6TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="final_course_work.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+final_course_work.elf: $(OBJS) $(USER_OBJS) D:\STM\workspace\sem6_course_work\final_course_work\STM32F030K6TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "final_course_work.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0 -T"D:\STM\workspace\sem6_course_work\final_course_work\STM32F030K6TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="final_course_work.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
