@@ -29,7 +29,7 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-#define T 5000
+#define T 15000
 #define COUNTER 5000
 #define SYN 22
 #define ACK 6
@@ -285,14 +285,14 @@ void connect(void) {
 	delay(10 * T);
 	send_value_pwm(SYN);
 	send_value_pwm(ACK);
-	delay(10 * T);
+//	delay(10 * T);
 //	turning off tranceiver timers
 	HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
 //	turning on receiver timers
 	HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
 	HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_2);
 
-	delay(10 * T);
+//	delay(10 * T);
 	output(" - Wait\r\n");
 	condition.connect = -1;
 }
